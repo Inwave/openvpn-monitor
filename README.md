@@ -1,277 +1,169 @@
-# openvpn-monitor
+# OpenVPN Monitor Fast
 
+Página de status somente leitura para OpenVPN. A aplicação lê o arquivo de
+status CSV produzido pelo próprio OpenVPN, mantém o último snapshot válido em
+memória e não consulta a interface de management durante as requisições.
 
-## Changes
+## Recursos
 
-This fork has some modifications (written in a hurry) so that the script returns data from open-vpn as json format when we pass a get_json parameter through GET or POST methods. This helps us with an automation tool - Xala.
+- página HTML responsiva com busca, ordenação e paginação;
+- cache invalidado pelo `mtime` e tamanho do arquivo de status;
+- proteção contra leituras incompletas e arquivos maiores que o limite;
+- escape de valores externos antes da geração do HTML;
+- `GET /healthz` para verificação de saúde;
+- `GET /?get_json=1` compatível com o contrato legado `identidade: IP_VPN`;
+- execução direta para desenvolvimento e WSGI/Gunicorn para produção.
 
-Usage example:
-```
-http://10.8.0.1:9090/?get_json=1
-curl -d "get_json=1" -X POST "10.8.0.1:9090"
-```
+## Requisitos
 
-Response example:
-```
-{
-"d8b0000000ea" : "10.8.0.1",
-"b82000000069" : "10.8.0.2",
-"b04000000096" : "10.8.0.3",
-"d8b0000000df" : "10.8.0.4",
-"d8c000000092" : "10.8.0.5",
-"d8b0000000cb" : "10.8.0.6",
-"d8b000000088" : "10.8.0.7"
-}
-```
+A aplicação usa apenas a biblioteca padrão do Python e suporta Python 3.8 ou
+superior. A implantação de referência usa Gunicorn 21.2.0, fixado em
+`requirements.txt`.
 
-You can do the normal script installation then replace the openvpn-monitor.py file in the system.
+## Execução local
 
-e.g in Ubuntu 20.04 using the gunicorn installation, replace ``/usr/local/lib/python3.8/dist-packages/openvpn-monitor.py``
-then restart the service ``sudo service openvpn-monitor restart``
+Nenhuma dependência adicional é necessária para iniciar com o servidor WSGI
+de desenvolvimento. O repositório contém um status fictício, sem dados reais:
 
-## Summary
-
-openvpn-monitor is a simple python program to generate html that displays the
-status of an OpenVPN server, including all current connections. It uses the
-OpenVPN management console. It typically runs on the same host as the OpenVPN
-server, however it does not necessarily need to.
-
-[![](https://raw.githubusercontent.com/furlongm/openvpn-monitor/gh-pages/screenshots/openvpn-monitor.png)](https://raw.githubusercontent.com/furlongm/openvpn-monitor/gh-pages/screenshots/openvpn-monitor.png)
-
-
-## Supported Operating Systems
-  - Ubuntu 20.04 LTS (focal)
-  - Debian 10 (buster)
-  - CentOS/RHEL 8
-
-
-## Source
-
-The current source code is available on github:
-
-https://github.com/furlongm/openvpn-monitor
-
-
-## Install Options
-
-  - [virtualenv + pip + gunicorn](#virtualenv--pip--gunicorn)
-  - [apache](#apache)
-  - [docker](#docker)
-  - [nginx + uwsgi](#nginx--uwsgi)
-  - [deb/rpm](#deb--rpm)
-
-N.B. all CentOS/RHEL instructions assume the EPEL repository has been installed:
-
-```shell
-dnf -y install epel-release
-
+```bash
+python3 openvpn_monitor_fast.py \
+  --status-path examples/openvpn-status.log
 ```
 
-If selinux is enabled the following changes are required for host/port to work:
+A página ficará disponível somente no loopback:
 
-```
-dnf -y install policycoreutils-python-utils
-semanage port -a -t openvpn_port_t -p tcp 5555
-setsebool -P httpd_can_network_connect=1
+```text
+http://127.0.0.1:8081/
 ```
 
+Consulte todas as opções com:
 
-### virtualenv + pip + gunicorn
-
-```shell
-# apt -y install python3-virtualenv geoip-database geoip-database-extra # (debian/ubuntu)
-# dnf -y install python3-virtualenv geolite2-city                       # (centos/rhel)
-mkdir /srv/openvpn-monitor
-cd /srv/openvpn-monitor
-virtualenv -p python3 .
-. bin/activate
-pip install openvpn-monitor gunicorn
-gunicorn openvpn-monitor -b 0.0.0.0:80
+```bash
+python3 openvpn_monitor_fast.py --help
 ```
 
-See [configuration](#configuration) for details on configuring openvpn-monitor.
+Para ler um status real, o usuário que executa o processo precisa ter
+permissão de leitura:
 
-
-### apache
-
-#### Install dependencies and configure apache
-
-##### Debian / Ubuntu
-
-```shell
-apt -y install git apache2 libapache2-mod-wsgi python3-geoip2 python3-humanize python3-bottle python3-semantic-version geoip-database geoip-database-extra
-echo "WSGIScriptAlias /openvpn-monitor /var/www/html/openvpn-monitor/openvpn-monitor.py" > /etc/apache2/conf-available/openvpn-monitor.conf
-a2enconf openvpn-monitor
-systemctl restart apache2
+```bash
+python3 openvpn_monitor_fast.py \
+  --status-path /var/log/openvpn/openvpn-status.log \
+  --site "OpenVPN Monitor"
 ```
 
-##### CentOS / RHEL
+O servidor embutido é destinado a desenvolvimento e diagnóstico. Use
+Gunicorn em produção.
 
-```shell
-dnf -y install git httpd mod_wsgi python3-geoip2 python3-humanize python3-bottle python3-semantic_version geolite2-city
-echo "WSGIScriptAlias /openvpn-monitor /var/www/html/openvpn-monitor/openvpn-monitor.py" > /etc/httpd/conf.d/openvpn-monitor.conf
-systemctl restart httpd
+## Configuração
+
+A execução direta aceita opções de linha de comando. Tanto ela quanto o
+Gunicorn reconhecem estas variáveis de ambiente:
+
+| Variável | Padrão | Uso |
+| --- | --- | --- |
+| `OPENVPN_STATUS_PATH` | `/var/log/openvpn/openvpn-status.log` | Arquivo CSV de status |
+| `OPENVPN_MONITOR_SITE` | `OpenVPN Monitor` | Nome exibido na página |
+| `OPENVPN_MONITOR_PAGE_SIZE` | `200` | Linhas por página, limitado de 25 a 500 |
+| `OPENVPN_STATUS_MAX_BYTES` | `8388608` | Tamanho máximo aceito para o status |
+| `OPENVPN_MONITOR_BIND` | `127.0.0.1` na execução direta | Endereço de escuta |
+| `OPENVPN_MONITOR_PORT` | `8081` | Porta usada apenas na execução direta |
+
+Na execução direta, argumentos explícitos prevalecem sobre as variáveis de
+ambiente.
+
+## Configuração do OpenVPN
+
+O arquivo precisa usar o formato CSV com os registros `HEADER`,
+`CLIENT_LIST`, `ROUTING_TABLE` e `END`. Uma configuração típica é:
+
+```text
+status /var/log/openvpn/openvpn-status.log
+status-version 2
 ```
 
-#### Checkout openvpn-monitor
+A aplicação retorna `503 Service Unavailable` até conseguir ler um snapshot
+completo.
 
-```shell
-cd /var/www/html
-git clone https://github.com/furlongm/openvpn-monitor.git
+## Produção com systemd
+
+Os arquivos de implantação ficam em `deploy/`:
+
+- `openvpn-monitor.service`: unidade base para systemd;
+- `openvpn-monitor.env.example`: configuração inicial;
+- `install.sh`: instala a aplicação, virtualenv e serviço.
+
+Em Ubuntu, instale primeiro o suporte a virtualenv se necessário:
+
+```bash
+sudo apt-get install python3-venv
 ```
 
-See [configuration](#configuration) for details on configuring openvpn-monitor.
+Depois revise `deploy/openvpn-monitor.env.example` e execute, a partir do
+repositório:
 
-
-### docker
-
-```shell
-docker run -p 80:80 ruimarinho/openvpn-monitor
+```bash
+sudo ./deploy/install.sh
 ```
 
-Read the [docker installation instructions](https://github.com/ruimarinho/docker-openvpn-monitor#usage)
-for details on how to generate a dynamic configuration using only environment
-variables.
+O instalador:
 
+1. copia a aplicação para `/opt/openvpn-monitor-fast`;
+2. cria `/opt/openvpn-monitor-fast/.venv`;
+3. instala as dependências de `requirements.txt`;
+4. cria `/etc/default/openvpn-monitor` somente se ele ainda não existir;
+5. instala e inicia `openvpn-monitor.service`.
 
-### nginx + uwsgi
+O instalador preserva um `/etc/default/openvpn-monitor` existente e não altera
+a configuração do OpenVPN. O bind padrão é `127.0.0.1:8081`. Defina um
+endereço apropriado no arquivo de ambiente quando o acesso pela rede for
+necessário.
 
-#### Install dependencies
+A unidade executa como `root` para conseguir ler instalações cujo arquivo de
+status tem permissões restritas. Para aplicar privilégio mínimo, torne o
+status legível por um usuário ou grupo dedicado e ajuste `User` e `Group` na
+unidade.
 
-```shell
-# apt -y install git gcc nginx uwsgi uwsgi-plugin-python3 virtualenv python3-dev libgeoip-dev geoip-database geoip-database-extra  # (debian/ubuntu)
-# dnf -y install git gcc nginx uwsgi uwsgi-plugin-python3 virtualenv python3-devel geoip-devel geolite2-city                       # (centos/rhel)
+Configuração de referência:
+
+```text
+Aplicação: /opt/openvpn-monitor-fast/openvpn_monitor_fast.py
+Status:    /var/log/openvpn/openvpn-status.log
+URL:       http://127.0.0.1:8081/
 ```
 
-#### Checkout openvpn-monitor
+Comandos de operação:
 
-```shell
-cd /srv
-git clone https://github.com/furlongm/openvpn-monitor.git
-cd openvpn-monitor
-virtualenv -p python3 .
-. bin/activate
-pip install -r requirements.txt
+```bash
+sudo systemctl status openvpn-monitor.service
+sudo journalctl -u openvpn-monitor.service
+sudo systemctl restart openvpn-monitor.service
 ```
 
-#### uWSGI app config
+## Endpoints
 
-Create a uWSGI config: `/etc/uwsgi/apps-available/openvpn-monitor.ini`
+| Requisição | Resposta |
+| --- | --- |
+| `GET /` | Página HTML |
+| `HEAD /` | Cabeçalhos da página |
+| `GET /?get_json=1` | JSON legado |
+| `GET /healthz` | Saúde, quantidade de clientes e idade do snapshot |
 
-```
-[uwsgi]
-base = /srv
-project = openvpn-monitor
-logto = /var/log/uwsgi/app/%(project).log
-plugins = python3
-chdir = %(base)/%(project)
-virtualenv = %(chdir)
-module = openvpn-monitor:application
-manage-script-name = true
-mount=/openvpn-monitor=openvpn-monitor.py
-```
+Métodos diferentes de `GET` e `HEAD` retornam `405 Method Not Allowed`.
 
-#### Nginx site config
+## Validação
 
-Create an Nginx config: `/etc/nginx/sites-available/openvpn-monitor`
-
-```
-server {
-    listen 80;
-    location /openvpn-monitor/ {
-        uwsgi_pass unix:///run/uwsgi/app/openvpn-monitor/socket;
-        include uwsgi_params;
-    }
-}
+```bash
+python3 -m py_compile openvpn_monitor_fast.py
+bash -n deploy/install.sh
+# Após a instalação:
+sudo systemd-analyze verify /etc/systemd/system/openvpn-monitor.service
 ```
 
-#### Enable uWSGI app and Nginx site, and restart services
+## Código legado
 
-```shell
-ln -s /etc/uwsgi/apps-available/openvpn-monitor.ini /etc/uwsgi/apps-enabled/
-systemctl restart uwsgi
-ln -s /etc/nginx/sites-available/openvpn-monitor /etc/nginx/sites-enabled/
-rm /etc/nginx/sites-enabled/default
-systemctl restart nginx
-```
+A implementação anterior está preservada na branch `legacy`.
 
-See [configuration](#configuration) for details on configuring openvpn-monitor.
+## Licença
 
-
-
-### deb / rpm
-
-```shell
-TBD
-```
-
-## Configuration
-
-### Configure OpenVPN
-
-Add the following line to your OpenVPN server configuration to run the
-management console on 127.0.0.1 port 5555, with the management password
-in /etc/openvpn/pw-file:
-
-```
-management 127.0.0.1 5555 pw-file
-```
-
-To run the management console on a socket, with the management password
-in /etc/openvpn/pw-file:
-
-```
-management socket-name unix pw-file
-```
-
-Refer to the OpenVPN documentation for further information on how to secure
-access to the management interface.
-
-
-### Configure openvpn-monitor
-
-Copy the example configuration file `openvpn-monitor.conf.example` to the same
-directory as openvpn-monitor.py.
-
-```shell
-cp openvpn-monitor.conf.example openvpn-monitor.conf
-
-```
-
-In this file you can set site name, add a logo, set the default map location
-(latitude and longitude). If not set, the default location is New York, USA.
-
-Once configured, navigate to `http://myipaddress/openvpn-monitor/`
-
-Note the trailing slash, the images may not appear without it.
-
-
-### Debugging
-
-openvpn-monitor can be run from the command line in order to test if the html
-generates correctly:
-
-```shell
-cd /var/www/html/openvpn-monitor
-python3 openvpn-monitor.py
-```
-
-Further debugging can be enabled by specifying the `--debug` flag:
-
-```shell
-cd /var/www/html/openvpn-monitor
-python3 openvpn-monitor.py -d
-```
-
-
-## License
-
-openvpn-monitor is licensed under the GPLv3, a copy of which can be found in
-the COPYING file.
-
-
-## Acknowledgements
-
-Flags are created by Matthias Slovig (flags@slovig.de) and are licensed under
-Creative Commons License Deed Attribution-ShareAlike 3.0 Unported
-(CC BY-SA 3.0). See http://flags.blogpotato.de/ for more details.
+Este projeto é distribuído sob a GNU General Public License versão 3. Consulte
+`COPYING`.

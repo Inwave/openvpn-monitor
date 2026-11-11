@@ -1,0 +1,49 @@
+[Unit]
+Description=OpenVPN Monitor Fast
+StartLimitIntervalSec=0
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/openvpn-monitor-fast
+Environment=OPENVPN_MONITOR_BIND=127.0.0.1:8081
+Environment=OPENVPN_STATUS_PATH=/var/log/openvpn/openvpn-status.log
+Environment="OPENVPN_MONITOR_SITE=OpenVPN Monitor"
+Environment=OPENVPN_MONITOR_PAGE_SIZE=200
+Environment=OPENVPN_STATUS_MAX_BYTES=8388608
+EnvironmentFile=-/etc/default/openvpn-monitor
+ExecStart=/opt/openvpn-monitor-fast/.venv/bin/gunicorn \
+    openvpn_monitor_fast:application \
+    --bind ${OPENVPN_MONITOR_BIND} \
+    --backlog 2048 \
+    --workers 2 \
+    --threads 2 \
+    --worker-class gthread \
+    --timeout 15 \
+    --graceful-timeout 5 \
+    --keep-alive 5 \
+    --max-requests 5000 \
+    --max-requests-jitter 500 \
+    --error-logfile - \
+    --name openvpn-monitor-fast
+Restart=always
+TimeoutStopSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+PrivateDevices=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
